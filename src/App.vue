@@ -10,12 +10,29 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
+                @input="changeNameTicker"
                 type="text"
                 name="wallet"
                 id="wallet"
                 class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
                 placeholder="Например DOGE"
               />
+            </div>
+            <div
+              v-if="similarNamesTikers.length"
+              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
+            >
+              <span
+                v-for="(item, id) in similarNamesTikers"
+                v-bind:key="id"
+                @click="addTicker(item.Symbol)"
+                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+              >
+                {{ item.Symbol }}
+              </span>
+            </div>
+            <div v-if="flagContainsTickerInArraty" class="text-sm text-red-600">
+              Такой тикер уже добавлен
             </div>
           </div>
         </div>
@@ -53,7 +70,7 @@
           >
             <div class="px-4 py-5 sm:p-6 text-center">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                {{ tickerItem.name }}
+                {{ tickerItem.name }} - USD
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
                 {{ tickerItem.price }}
@@ -139,39 +156,110 @@ export default {
       tickers: [],
       state: null,
       graph: [],
+      allTickerApp: [],
+      similarNamesTikers: [],
+      flagContainsTickerInArraty: false,
     };
   },
+
+  async created() {
+    let url =
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true";
+    let response = await fetch(url);
+    let tickerJson = await response.json();
+    for (var item in tickerJson.Data) {
+      this.allTickerApp.push(tickerJson.Data[item]);
+    }
+  },
+
   methods: {
-    add() {
+    addTicker(nameTicker) {
       const currentTicker = {
-        name: this.ticker,
+        name: nameTicker.toLocaleUpperCase(),
         price: "-",
       };
+      if (this.containsTickerInArray(currentTicker)) {
+        this.flagContainsTickerInArraty = true;
+        return;
+      } else {
+        this.tickers.push(currentTicker);
 
-      this.tickers.push(currentTicker);
-      console.log(currentTicker.name);
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=0afe0210a760fda9bd83b4cbfae971fe47715ca7b7218771af22be0f9465e2ac`
-        );
-        const data = await f.json();
-        console.log(data);
-        // currentTicker.price =  data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-        this.tickers.find((t) => t.name === currentTicker.name).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD;
-        console.log(this.graph.length);
-        if (this.state?.name === currentTicker.name) {
-          this.graph.push(data.USD);
-        }
-      }, 5000);
+        setInterval(async () => {
+          const f = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=0afe0210a760fda9bd83b4cbfae971fe47715ca7b7218771af22be0f9465e2ac`
+          );
+          const data = await f.json();
+          this.tickers.find((t) => t.name === currentTicker.name).price =
+            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+          if (this.state?.name === currentTicker.name) {
+            this.graph.push(data.USD);
+          }
+        }, 5000);
 
-      this.ticker = "";
+        this.ticker = "";
+        this.similarNamesTikers = [];
+      }
     },
 
+    containsTickerInArray(currentTicker) {
+      return this.tickers.some(
+        (ticker) =>
+          ticker.name.toLocaleUpperCase() ===
+          currentTicker.name.toLocaleUpperCase()
+      );
+    },
+
+    getSimilarNamesTikers(currentTicker) {
+      return this.allTickerApp
+        .filter(function (s) {
+          return (
+            s["Symbol"].includes(currentTicker.toLocaleUpperCase()) ||
+            s["FullName"].includes(currentTicker.toLocaleUpperCase())
+          );
+        })
+        .slice(0, 4);
+    },
+
+    add() {
+      const currentTicker = {
+        name: this.ticker.toLocaleUpperCase(),
+        price: "-",
+      };
+      if (this.containsTickerInArray(currentTicker)) {
+        this.flagContainsTickerInArraty = true;
+        return;
+      } else {
+        this.tickers.push(currentTicker);
+
+        setInterval(async () => {
+          const f = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=0afe0210a760fda9bd83b4cbfae971fe47715ca7b7218771af22be0f9465e2ac`
+          );
+          const data = await f.json();
+          this.tickers.find((t) => t.name === currentTicker.name).price =
+            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+          if (this.state?.name === currentTicker.name) {
+            this.graph.push(data.USD);
+          }
+        }, 5000);
+
+        this.ticker = "";
+      }
+    },
+    changeNameTicker() {
+      if (this.ticker === "") {
+        this.similarNamesTikers = [];
+        return;
+      }
+      this.similarNamesTikers = this.getSimilarNamesTikers(this.ticker);
+      console.log(this.similarNamesTikers);
+      this.flagContainsTickerInArraty = false;
+    },
     select(ticker) {
       this.state = ticker;
       this.graph = [];
     },
+
     normalizeGraph() {
       const maxValue = Math.max(...this.graph);
       const minValue = Math.min(...this.graph);
