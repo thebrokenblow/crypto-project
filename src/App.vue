@@ -57,9 +57,28 @@
 
       <template v-if="tickers.length">
         <hr class="w-full border-t border-gray-600 my-4" />
+        <div>
+          <button
+            v-if="page > 1"
+            @click="page = page - 1"
+            class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+          >
+            Назад
+          </button>
+          <button
+            v-if="hasNextPage"
+            @click="page = page + 1"
+            class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+          >
+            Вперед
+          </button>
+          <div>Фильтр: <input type="text" v-model="filterValue" /></div>
+        </div>
+
+        <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="ticker in tickers"
+            v-for="ticker in filteredTickers()"
             :key="ticker.name"
             @click="select(ticker)"
             :class="{
@@ -155,10 +174,30 @@ export default {
       allTickerApp: [],
       similarNamesTikers: [],
       isContainsTickerInArray: false,
+      filterValue: "",
+      page: 1,
+      hasNextPage: false,
     };
   },
 
   async created() {
+    const windowData = Object.fromEntries(
+      new URL(window.location).searchParams.entries()
+    );
+
+    if (windowData.filter) {
+      this.filterValue = windowData.filter;
+    }
+
+    if (windowData.page) {
+      this.page = windowData.page;
+    }
+
+    const tickerData = localStorage.getItem("cryptonomicom-list");
+    if (tickerData) {
+      this.tickers = JSON.parse(tickerData);
+    }
+    this.tickers.forEach((ticker) => this.subscribeToUpdate(ticker));
     let url =
       "https://min-api.cryptocompare.com/data/all/coinlist?summary=true";
     let response = await fetch(url);
@@ -167,30 +206,68 @@ export default {
       this.allTickerApp.push(tickerJson.Data[item]);
     }
   },
+  watch: {
+    filterValue() {
+      this.page = 1;
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filterValue}&page=${this.page}`
+      );
+    },
+    page() {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filterValue}&page=${this.page}`
+      );
+    },
+  },
 
   methods: {
+    filteredTickers() {
+      const start = (this.page - 1) * 6;
+      const end = this.page * 6;
+      const filteredTickers = this.tickers.filter((ticker) =>
+        ticker.name.includes(this.filterValue.toLocaleUpperCase())
+      );
+
+      this.hasNextPage = filteredTickers.length > end;
+      return filteredTickers.slice(start, end);
+    },
+
+    subscribeToUpdate(tickerName) {
+      setInterval(async () => {
+        const f = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName.name}&tsyms=USD&api_key=0afe0210a760fda9bd83b4cbfae971fe47715ca7b7218771af22be0f9465e2ac`
+        );
+        const data = await f.json();
+        this.tickers.find((t) => t.name === tickerName.name).price = data.USD;
+        if (this.sel?.name === tickerName.name) {
+          this.graph.push(data.USD);
+        }
+      }, 5000);
+    },
+
     add(tickerName) {
       const currentTicker = {
-        name: tickerName.toLocaleUpperCase(),
+        name: tickerName,
         price: "-",
       };
+      this.filterValue = "";
+      this.isContainsTickerInArray = false;
       if (this.containsTickerInArray(currentTicker)) {
         this.isContainsTickerInArray = true;
         return;
       } else {
         this.tickers.push(currentTicker);
-        setInterval(async () => {
-          const f = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=0afe0210a760fda9bd83b4cbfae971fe47715ca7b7218771af22be0f9465e2ac`
-          );
-          const data = await f.json();
-          this.tickers.find((t) => t.name === currentTicker.name).price =
-            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
 
-          if (this.sel?.name === currentTicker.name) {
-            this.graph.push(data.USD);
-          }
-        }, 5000);
+        localStorage.setItem(
+          "cryptonomicom-list",
+          JSON.stringify(this.tickers)
+        );
+
+        this.subscribeToUpdate(currentTicker);
         this.ticker = "";
         this.similarNamesTikers = [];
       }
